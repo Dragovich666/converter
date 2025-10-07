@@ -64,3 +64,20 @@ Backup_*
 # Python bytecode and cache files
 __pycache__/
 *.py[cod]
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
