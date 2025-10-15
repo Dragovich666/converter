@@ -1,319 +1,292 @@
 """
-API Crawler para buscar passagens aéreas mais baratas
+API Flight Crawler - Versão profissional com dados reais
+Aplicação principal seguindo princípios SOLID e padrões de projeto
 """
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from datetime import datetime
-import random
-import uuid
+import logging
 
+# Importações dos módulos criados
+from config import Config
+from interfaces import FlightSearchParams, CabinClass
+from provider_kiwi import KiwiFlightProvider
+from provider_amadeus import AmadeusFlightProvider
+from flight_service import FlightSearchService
+from repository import SearchRepository
+
+# Configuração de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Inicialização da aplicação Flask
 app = Flask(__name__)
+app.config.from_object(Config)
 CORS(app)
 
-# Banco de dados em memória
-database = {}
+# Inicialização dos provedores (Strategy Pattern)
+providers = [
+    KiwiFlightProvider(),
+    AmadeusFlightProvider(),
+]
 
-
-class FlightDatabase:
-    """Classe para gerenciar o banco de dados em memória"""
-    
-    def __init__(self):
-        self.searches = {}
-        self.results = {}
-    
-    def save_search(self, search_data):
-        """Salva uma busca no banco de dados"""
-        search_id = str(uuid.uuid4())
-        self.searches[search_id] = {
-            'id': search_id,
-            'data': search_data,
-            'timestamp': datetime.now().isoformat()
-        }
-        return search_id
-    
-    def save_results(self, search_id, results):
-        """Salva os resultados de uma busca"""
-        self.results[search_id] = results
-    
-    def get_search(self, search_id):
-        """Recupera uma busca pelo ID"""
-        return self.searches.get(search_id)
-    
-    def get_results(self, search_id):
-        """Recupera os resultados de uma busca"""
-        return self.results.get(search_id)
-    
-    def list_all_searches(self):
-        """Lista todas as buscas realizadas"""
-        return list(self.searches.values())
-
-
-# Instância do banco de dados
-db = FlightDatabase()
-
-
-class FlightCrawler:
-    """Crawler para simular busca de passagens aéreas"""
-    
-    # Lista de companhias aéreas fictícias
-    AIRLINES = ['GOL', 'LATAM', 'Azul', 'Avianca', 'VoePass']
-    
-    # Lista de aeroportos brasileiros
-    AIRPORTS = {
-        'GRU': 'São Paulo - Guarulhos',
-        'CGH': 'São Paulo - Congonhas',
-        'GIG': 'Rio de Janeiro - Galeão',
-        'SDU': 'Rio de Janeiro - Santos Dumont',
-        'BSB': 'Brasília',
-        'CNF': 'Belo Horizonte - Confins',
-        'SSA': 'Salvador',
-        'REC': 'Recife',
-        'FOR': 'Fortaleza',
-        'POA': 'Porto Alegre'
-    }
-    
-    @staticmethod
-    def search_flights(data_inicial, data_final, passageiros, tem_crianca=False, idade_crianca=None):
-        """
-        Simula a busca de voos
-        
-        Args:
-            data_inicial: Data de início (formato: YYYY-MM-DD)
-            data_final: Data de retorno (formato: YYYY-MM-DD)
-            passageiros: Quantidade de passageiros
-            tem_crianca: Se há crianças
-            idade_crianca: Idade da(s) criança(s)
-        
-        Returns:
-            Lista de voos encontrados
-        """
-        flights = []
-        
-        # Gera entre 5 e 10 resultados fictícios
-        num_results = random.randint(5, 10)
-        
-        for i in range(num_results):
-            # Seleciona aeroportos de origem e destino aleatórios
-            origem_code = random.choice(list(FlightCrawler.AIRPORTS.keys()))
-            destino_code = random.choice([k for k in FlightCrawler.AIRPORTS.keys() if k != origem_code])
-            
-            # Calcula desconto se houver crianças
-            desconto = 0.15 if tem_crianca else 0
-            
-            # Preço base por passageiro
-            preco_base = random.randint(200, 1500)
-            
-            # Calcula preço total considerando passageiros e desconto
-            preco_crianca = preco_base * (1 - desconto) if tem_crianca else 0
-            preco_adulto = preco_base
-            
-            # Preço total
-            if tem_crianca and passageiros > 1:
-                preco_total = (preco_adulto * (passageiros - 1)) + preco_crianca
-            else:
-                preco_total = preco_adulto * passageiros
-            
-            flight = {
-                'id': str(uuid.uuid4()),
-                'companhia': random.choice(FlightCrawler.AIRLINES),
-                'origem': {
-                    'codigo': origem_code,
-                    'nome': FlightCrawler.AIRPORTS[origem_code]
-                },
-                'destino': {
-                    'codigo': destino_code,
-                    'nome': FlightCrawler.AIRPORTS[destino_code]
-                },
-                'data_ida': data_inicial,
-                'data_volta': data_final,
-                'horario_ida': f'{random.randint(0, 23):02d}:{random.choice(["00", "30"])}',
-                'horario_volta': f'{random.randint(0, 23):02d}:{random.choice(["00", "30"])}',
-                'passageiros': passageiros,
-                'tem_crianca': tem_crianca,
-                'idade_crianca': idade_crianca if tem_crianca else None,
-                'preco_por_adulto': round(preco_adulto, 2),
-                'preco_por_crianca': round(preco_crianca, 2) if tem_crianca else None,
-                'preco_total': round(preco_total, 2),
-                'moeda': 'BRL',
-                'disponivel': True,
-                'escalas': random.randint(0, 2),
-                'duracao_estimada': f'{random.randint(1, 8)}h {random.randint(0, 59):02d}min'
-            }
-            
-            flights.append(flight)
-        
-        # Ordena por preço (mais barato primeiro)
-        flights.sort(key=lambda x: x['preco_total'])
-        
-        return flights
-
-
-def validate_date(date_str):
-    """Valida formato de data"""
-    try:
-        datetime.strptime(date_str, '%Y-%m-%d')
-        return True
-    except ValueError:
-        return False
+# Inicialização dos serviços (Dependency Injection)
+flight_service = FlightSearchService(providers)
+search_repository = SearchRepository()
 
 
 @app.route('/')
 def index():
-    """Rota principal com informações da API"""
+    """Página inicial com formulário de busca"""
+    return render_template('index.html')
+
+
+@app.route('/api')
+def api_info():
+    """Endpoint de informações da API"""
+    available_providers = [p.get_provider_name() for p in providers if p.is_available()]
+
     return jsonify({
         'api': 'Flight Crawler API',
-        'versao': '1.0',
+        'version': '2.0',
+        'description': 'API profissional com integração real de provedores de voos',
+        'architecture': 'SOLID principles + Design Patterns',
+        'providers_configured': available_providers,
+        'total_providers': len(providers),
         'endpoints': {
-            '/consulta': {
-                'metodo': 'POST',
-                'descricao': 'Busca passagens aéreas',
-                'parametros': {
-                    'data_inicial': 'Data de início (YYYY-MM-DD) - obrigatório',
-                    'data_final': 'Data de retorno (YYYY-MM-DD) - obrigatório',
-                    'passageiros': 'Quantidade de passageiros (int) - obrigatório',
-                    'tem_crianca': 'Se há crianças (boolean) - opcional, padrão: false',
-                    'idade_crianca': 'Idade da criança (int) - opcional'
-                }
-            },
-            '/consulta/<search_id>': {
-                'metodo': 'GET',
-                'descricao': 'Recupera resultados de uma busca anterior'
-            },
-            '/historico': {
-                'metodo': 'GET',
-                'descricao': 'Lista todas as buscas realizadas'
-            }
+            'GET /': 'Página inicial com formulário',
+            'GET /api': 'Informações da API',
+            'POST /consulta': 'Buscar voos com dados reais',
+            'GET /consulta/<search_id>': 'Recuperar busca anterior',
+            'GET /consulta/<search_id>/view': 'Ver resultados em HTML',
+            'GET /historico': 'Listar histórico de buscas',
+            'GET /stats': 'Estatísticas de buscas',
+            'GET /health': 'Status da API'
+        },
+        'example_request': {
+            'origem': 'GRU',
+            'destino': 'GIG',
+            'data_ida': '2025-02-01',
+            'data_volta': '2025-02-10',
+            'passageiros': 2,
+            'criancas': 0,
+            'classe': 'ECONOMY',
+            'moeda': 'BRL'
         }
-    })
+    }), 200
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Endpoint de health check"""
+    available_providers = [
+        {
+            'name': p.get_provider_name(),
+            'available': p.is_available(),
+            'priority': p.get_priority()
+        }
+        for p in providers
+    ]
+
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'providers': available_providers,
+        'database': 'connected'
+    }), 200
 
 
 @app.route('/consulta', methods=['POST'])
 def consulta():
     """
-    Endpoint para consultar passagens aéreas
-    
-    Espera JSON com:
+    Endpoint para buscar passagens aéreas com dados reais
+
+    Body JSON:
     {
-        "data_inicial": "2024-01-01",
-        "data_final": "2024-01-10",
+        "origem": "GRU",
+        "destino": "GIG",
+        "data_ida": "2025-02-01",
+        "data_volta": "2025-02-10",
         "passageiros": 2,
-        "tem_crianca": false,
-        "idade_crianca": null
+        "criancas": 0,
+        "classe": "ECONOMY",
+        "moeda": "BRL"
     }
+
+    Query Params:
+    ?format=html - Retorna página HTML ao invés de JSON
     """
     try:
         data = request.get_json()
-        
+
         if not data:
             return jsonify({
                 'erro': 'Dados não fornecidos',
                 'mensagem': 'É necessário enviar um JSON no corpo da requisição'
             }), 400
-        
-        # Validação dos campos obrigatórios
-        campos_obrigatorios = ['data_inicial', 'data_final', 'passageiros']
+
+        # Validação de campos obrigatórios
+        campos_obrigatorios = ['origem', 'destino', 'data_ida', 'passageiros']
         campos_faltando = [campo for campo in campos_obrigatorios if campo not in data]
-        
+
         if campos_faltando:
             return jsonify({
                 'erro': 'Campos obrigatórios faltando',
                 'campos_faltando': campos_faltando
             }), 400
-        
-        # Extrai os parâmetros
-        data_inicial = data.get('data_inicial')
-        data_final = data.get('data_final')
-        passageiros = data.get('passageiros')
-        tem_crianca = data.get('tem_crianca', False)
-        idade_crianca = data.get('idade_crianca')
-        
-        # Validações
-        if not validate_date(data_inicial):
+
+        # Extrai e valida parâmetros
+        origem = data['origem'].upper()
+        destino = data['destino'].upper()
+        data_ida_str = data['data_ida']
+        data_volta_str = data.get('data_volta')
+        passageiros = data.get('passageiros', 1)
+        criancas = data.get('criancas', 0)
+        classe = data.get('classe', 'ECONOMY').upper()
+        moeda = data.get('moeda', 'BRL').upper()
+
+        # Validação de códigos de aeroporto
+        if len(origem) != 3 or len(destino) != 3:
             return jsonify({
-                'erro': 'Data inicial inválida',
+                'erro': 'Códigos de aeroporto inválidos',
+                'mensagem': 'Use códigos IATA de 3 letras (ex: GRU, GIG)'
+            }), 400
+
+        # Validação de datas
+        try:
+            data_ida = datetime.strptime(data_ida_str, '%Y-%m-%d')
+            data_volta = datetime.strptime(data_volta_str, '%Y-%m-%d') if data_volta_str else None
+        except ValueError:
+            return jsonify({
+                'erro': 'Formato de data inválido',
                 'mensagem': 'Use o formato YYYY-MM-DD'
             }), 400
-        
-        if not validate_date(data_final):
+
+        # Validação de classe
+        try:
+            cabin_class = CabinClass[classe]
+        except KeyError:
             return jsonify({
-                'erro': 'Data final inválida',
-                'mensagem': 'Use o formato YYYY-MM-DD'
+                'erro': 'Classe de cabine inválida',
+                'mensagem': 'Use: ECONOMY, PREMIUM_ECONOMY, BUSINESS ou FIRST'
             }), 400
-        
-        if not isinstance(passageiros, int) or passageiros < 1:
+
+        # Cria parâmetros de busca
+        try:
+            params = FlightSearchParams(
+                origin=origem,
+                destination=destino,
+                departure_date=data_ida,
+                return_date=data_volta,
+                adults=passageiros,
+                children=criancas,
+                cabin_class=cabin_class,
+                currency=moeda
+            )
+        except ValueError as e:
             return jsonify({
-                'erro': 'Quantidade de passageiros inválida',
-                'mensagem': 'Deve ser um número inteiro maior que 0'
+                'erro': 'Erro de validação',
+                'mensagem': str(e)
             }), 400
-        
-        # Verifica se data inicial é anterior à data final
-        if datetime.strptime(data_inicial, '%Y-%m-%d') >= datetime.strptime(data_final, '%Y-%m-%d'):
-            return jsonify({
-                'erro': 'Datas inválidas',
-                'mensagem': 'A data inicial deve ser anterior à data final'
-            }), 400
-        
-        if tem_crianca and idade_crianca is not None:
-            if not isinstance(idade_crianca, int) or idade_crianca < 0 or idade_crianca > 12:
-                return jsonify({
-                    'erro': 'Idade da criança inválida',
-                    'mensagem': 'Deve ser um número inteiro entre 0 e 12'
-                }), 400
-        
-        # Salva a busca no banco de dados
-        search_id = db.save_search(data)
-        
-        # Realiza a busca
-        resultados = FlightCrawler.search_flights(
-            data_inicial, 
-            data_final, 
-            passageiros, 
-            tem_crianca, 
-            idade_crianca
-        )
-        
-        # Salva os resultados
-        db.save_results(search_id, resultados)
-        
-        # Retorna a resposta
+
+        logger.info(f"Iniciando busca: {origem} -> {destino} em {data_ida_str}")
+
+        # Busca voos usando o serviço
+        flights = flight_service.search_flights(params)
+
+        # Salva a busca no repositório
+        search_id = search_repository.save_search(data)
+        flights_dict = [flight.to_dict() for flight in flights]
+        search_repository.save_results(search_id, flights_dict)
+
+        # Verifica se deve retornar HTML
+        if request.args.get('format') == 'html':
+            return render_template('results.html',
+                search_id=search_id,
+                timestamp=datetime.now().isoformat(),
+                parametros={
+                    'origem': origem,
+                    'destino': destino,
+                    'data_ida': data_ida_str,
+                    'data_volta': data_volta_str,
+                    'passageiros': passageiros,
+                    'criancas': criancas,
+                    'classe': classe,
+                    'moeda': moeda
+                },
+                total_resultados=len(flights),
+                voos=flights_dict
+            )
+
         return jsonify({
             'sucesso': True,
             'search_id': search_id,
+            'timestamp': datetime.now().isoformat(),
             'parametros': {
-                'data_inicial': data_inicial,
-                'data_final': data_final,
+                'origem': origem,
+                'destino': destino,
+                'data_ida': data_ida_str,
+                'data_volta': data_volta_str,
                 'passageiros': passageiros,
-                'tem_crianca': tem_crianca,
-                'idade_crianca': idade_crianca
+                'criancas': criancas,
+                'classe': classe,
+                'moeda': moeda
             },
-            'total_resultados': len(resultados),
-            'voos': resultados
+            'total_resultados': len(flights),
+            'voos': flights_dict
         }), 200
-    
+
     except Exception as e:
+        logger.error(f"Erro na consulta: {str(e)}", exc_info=True)
         return jsonify({
             'erro': 'Erro interno do servidor',
             'mensagem': str(e)
         }), 500
 
 
+@app.route('/consulta/<search_id>/view', methods=['GET'])
+def view_consulta(search_id):
+    """Renderiza os resultados de uma busca em HTML"""
+    search = search_repository.get_search(search_id)
+
+    if not search:
+        return render_template('error.html',
+            erro='Busca não encontrada',
+            mensagem=f'Nenhuma busca encontrada com o ID {search_id}'
+        ), 404
+
+    results = search_repository.get_results(search_id)
+
+    return render_template('results.html',
+        search_id=search_id,
+        timestamp=search['timestamp'],
+        parametros=search['data'],
+        total_resultados=len(results) if results else 0,
+        voos=results
+    )
+
+
 @app.route('/consulta/<search_id>', methods=['GET'])
 def get_consulta(search_id):
-    """Recupera uma busca específica pelo ID"""
-    search = db.get_search(search_id)
-    
+    """Recupera uma busca anterior pelo ID"""
+    search = search_repository.get_search(search_id)
+
     if not search:
         return jsonify({
             'erro': 'Busca não encontrada',
             'mensagem': f'Nenhuma busca encontrada com o ID {search_id}'
         }), 404
-    
-    results = db.get_results(search_id)
-    
+
+    results = search_repository.get_results(search_id)
+
     return jsonify({
         'sucesso': True,
         'search_id': search_id,
         'timestamp': search['timestamp'],
+        'status': search['status'],
         'parametros': search['data'],
         'total_resultados': len(results) if results else 0,
         'voos': results
@@ -323,8 +296,11 @@ def get_consulta(search_id):
 @app.route('/historico', methods=['GET'])
 def historico():
     """Lista todas as buscas realizadas"""
-    searches = db.list_all_searches()
-    
+    searches = search_repository.list_all_searches()
+
+    # Ordena por timestamp (mais recentes primeiro)
+    searches.sort(key=lambda x: x['timestamp'], reverse=True)
+
     return jsonify({
         'sucesso': True,
         'total_buscas': len(searches),
@@ -332,7 +308,46 @@ def historico():
     }), 200
 
 
+@app.route('/stats', methods=['GET'])
+def stats():
+    """Retorna estatísticas da API"""
+    stats = search_repository.get_search_stats()
+
+    return jsonify({
+        'sucesso': True,
+        'estatisticas': stats
+    }), 200
+
+
+@app.errorhandler(404)
+def not_found(error):
+    """Handler para rotas não encontradas"""
+    return jsonify({
+        'erro': 'Rota não encontrada',
+        'mensagem': 'O endpoint solicitado não existe'
+    }), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handler para erros internos"""
+    logger.error(f"Erro interno: {str(error)}")
+    return jsonify({
+        'erro': 'Erro interno do servidor',
+        'mensagem': 'Ocorreu um erro inesperado'
+    }), 500
+
+
 if __name__ == '__main__':
-    print("Iniciando Flight Crawler API...")
-    print("Acesse http://localhost:5000 para ver os endpoints disponíveis")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    logger.info("=" * 60)
+    logger.info("Iniciando Flight Crawler API v2.0")
+    logger.info("Arquitetura: SOLID + Design Patterns")
+    logger.info(f"Provedores configurados: {len([p for p in providers if p.is_available()])}/{len(providers)}")
+    logger.info(f"Acesse http://{Config.HOST}:{Config.PORT}")
+    logger.info("=" * 60)
+
+    app.run(
+        debug=Config.DEBUG,
+        host=Config.HOST,
+        port=Config.PORT
+    )

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Crawler - Resultados da Busca</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-plane-departure"></i>
+                <h1>Flight Crawler</h1>
+            </div>
+            <p class="subtitle">Encontre as melhores ofertas de voos</p>
+        </header>
+
+        <!-- Search Summary -->
+        <div class="search-summary">
+            <div class="summary-header">
+                <h2>
+                    <i class="fas fa-search"></i>
+                    Resultados da Busca
+                </h2>
+                <span class="search-id">ID: {{ search_id }}</span>
+            </div>
+
+            <div class="search-params">
+                <div class="param-card">
+                    <i class="fas fa-map-marker-alt origin"></i>
+                    <div>
+                        <span class="param-label">Origem</span>
+                        <span class="param-value">{{ parametros.origem }}</span>
+                    </div>
+                </div>
+
+                <div class="param-arrow">
+                    <i class="fas fa-arrow-right"></i>
+                </div>
+
+                <div class="param-card">
+                    <i class="fas fa-map-marker-alt destination"></i>
+                    <div>
+                        <span class="param-label">Destino</span>
+                        <span class="param-value">{{ parametros.destino }}</span>
+                    </div>
+                </div>
+
+                <div class="param-card">
+                    <i class="fas fa-calendar-alt"></i>
+                    <div>
+                        <span class="param-label">Ida</span>
+                        <span class="param-value">{{ parametros.data_ida }}</span>
+                    </div>
+                </div>
+
+                {% if parametros.data_volta %}
+                <div class="param-card">
+                    <i class="fas fa-calendar-alt"></i>
+                    <div>
+                        <span class="param-label">Volta</span>
+                        <span class="param-value">{{ parametros.data_volta }}</span>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="param-card">
+                    <i class="fas fa-users"></i>
+                    <div>
+                        <span class="param-label">Passageiros</span>
+                        <span class="param-value">{{ parametros.passageiros }}{% if parametros.criancas > 0 %} + {{ parametros.criancas }} criança(s){% endif %}</span>
+                    </div>
+                </div>
+
+                <div class="param-card">
+                    <i class="fas fa-chair"></i>
+                    <div>
+                        <span class="param-label">Classe</span>
+                        <span class="param-value">{{ parametros.classe }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Info -->
+        <div class="results-info">
+            <div class="results-count">
+                <i class="fas fa-check-circle"></i>
+                <span><strong>{{ total_resultados }}</strong> voos encontrados</span>
+            </div>
+            <div class="timestamp">
+                <i class="fas fa-clock"></i>
+                <span>{{ timestamp }}</span>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters">
+            <button class="filter-btn active" onclick="filterFlights('all')">
+                <i class="fas fa-list"></i> Todos
+            </button>
+            <button class="filter-btn" onclick="filterFlights('direct')">
+                <i class="fas fa-plane"></i> Voos Diretos
+            </button>
+            <button class="filter-btn" onclick="filterFlights('cheapest')">
+                <i class="fas fa-dollar-sign"></i> Mais Baratos
+            </button>
+            <button class="filter-btn" onclick="sortFlights('duration')">
+                <i class="fas fa-clock"></i> Menor Duração
+            </button>
+        </div>
+
+        <!-- Flights List -->
+        <div class="flights-list" id="flightsList">
+            {% if voos %}
+                {% for voo in voos %}
+                <div class="flight-card" data-stops="{{ voo.stops }}" data-price="{{ voo.price }}" data-duration="{{ voo.duration_minutes }}">
+                    <!-- Flight Header -->
+                    <div class="flight-header">
+                        <div class="airline-info">
+                            {% if voo.airline_logo %}
+                            <img src="{{ voo.airline_logo }}" alt="{{ voo.airline }}" class="airline-logo">
+                            {% else %}
+                            <div class="airline-logo-placeholder">
+                                <i class="fas fa-plane"></i>
+                            </div>
+                            {% endif %}
+                            <div>
+                                <h3>{{ voo.airline }}</h3>
+                                <span class="flight-number">{{ voo.flight_number }}</span>
+                            </div>
+                        </div>
+                        <div class="provider-badge">
+                            <i class="fas fa-building"></i>
+                            {{ voo.provider }}
+                        </div>
+                    </div>
+
+                    <!-- Flight Details - IDA -->
+                    <div class="flight-details">
+                        <div class="route-section">
+                            <div class="route-label">
+                                <i class="fas fa-plane-departure"></i> Ida
+                            </div>
+                            <div class="route-info">
+                                <div class="airport-time">
+                                    <span class="time">{{ voo.departure_datetime.split('T')[1][:5] if 'T' in voo.departure_datetime else voo.departure_datetime[-8:-3] }}</span>
+                                    <span class="airport-code">{{ voo.origin.code }}</span>
+                                    <span class="airport-name">{{ voo.origin.city if voo.origin.city and voo.origin.city != voo.origin.code else voo.origin.name }}</span>
+                                </div>
+
+                                <div class="route-middle">
+                                    <span class="duration">{{ voo.duration_formatted }}</span>
+                                    <div class="route-line">
+                                        <div class="route-dot"></div>
+                                        {% if voo.stops == 0 %}
+                                        <div class="route-path direct"></div>
+                                        {% else %}
+                                        <div class="route-path stops"></div>
+                                        {% endif %}
+                                        <div class="route-dot"></div>
+                                    </div>
+                                    {% if voo.stops == 0 %}
+                                    <span class="stops-info direct">Direto</span>
+                                    {% elif voo.stops == 1 %}
+                                    <span class="stops-info">1 parada</span>
+                                    {% else %}
+                                    <span class="stops-info">{{ voo.stops }} paradas</span>
+                                    {% endif %}
+                                </div>
+
+                                <div class="airport-time">
+                                    <span class="time">{{ voo.arrival_datetime.split('T')[1][:5] if 'T' in voo.arrival_datetime else voo.arrival_datetime[-8:-3] }}</span>
+                                    <span class="airport-code">{{ voo.destination.code }}</span>
+                                    <span class="airport-name">{{ voo.destination.city if voo.destination.city and voo.destination.city != voo.destination.code else voo.destination.name }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Flight Details - VOLTA -->
+                        {% if voo.return_departure_datetime %}
+                        <div class="route-section return">
+                            <div class="route-label">
+                                <i class="fas fa-plane-arrival"></i> Volta
+                            </div>
+                            <div class="route-info">
+                                <div class="airport-time">
+                                    <span class="time">{{ voo.return_departure_datetime.split('T')[1][:5] if 'T' in voo.return_departure_datetime else voo.return_departure_datetime[-8:-3] }}</span>
+                                    <span class="airport-code">{{ voo.destination.code }}</span>
+                                </div>
+
+                                <div class="route-middle">
+                                    <div class="route-line">
+                                        <div class="route-dot"></div>
+                                        <div class="route-path"></div>
+                                        <div class="route-dot"></div>
+                                    </div>
+                                </div>
+
+                                <div class="airport-time">
+                                    <span class="time">{{ voo.return_arrival_datetime.split('T')[1][:5] if 'T' in voo.return_arrival_datetime else voo.return_arrival_datetime[-8:-3] }}</span>
+                                    <span class="airport-code">{{ voo.origin.code }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Flight Footer -->
+                    <div class="flight-footer">
+                        <div class="flight-info-tags">
+                            <span class="info-tag">
+                                <i class="fas fa-chair"></i>
+                                {{ voo.cabin_class }}
+                            </span>
+                            {% if voo.baggage_included %}
+                            <span class="info-tag baggage">
+                                <i class="fas fa-suitcase"></i>
+                                Bagagem Incluída
+                            </span>
+                            {% endif %}
+                            <span class="info-tag">
+                                <i class="fas fa-users"></i>
+                                {{ voo.available_seats }} assentos
+                            </span>
+                            {% if voo.aircraft_type %}
+                            <span class="info-tag">
+                                <i class="fas fa-plane"></i>
+                                {{ voo.aircraft_type }}
+                            </span>
+                            {% endif %}
+                        </div>
+
+                        <div class="price-section">
+                            <div class="price-info">
+                                <span class="price-label">Total</span>
+                                <span class="price-value">{{ voo.currency }} {{ "%.2f"|format(voo.price) }}</span>
+                            </div>
+                            {% if voo.booking_url %}
+                            <a href="{{ voo.booking_url }}" target="_blank" class="btn-book">
+                                <i class="fas fa-ticket-alt"></i>
+                                Reservar
+                            </a>
+                            {% else %}
+                            <button class="btn-book disabled" disabled>
+                                <i class="fas fa-info-circle"></i>
+                                Indisponível
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-results">
+                    <i class="fas fa-search"></i>
+                    <h3>Nenhum voo encontrado</h3>
+                    <p>Tente ajustar seus critérios de busca</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Back Button -->
+        <div class="back-section">
+            <a href="/" class="btn-back">
+                <i class="fas fa-arrow-left"></i>
+                Nova Busca
+            </a>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+
